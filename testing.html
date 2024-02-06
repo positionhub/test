@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ko">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+        <title>Dynamic Job Listings from Airtable</title>
+        <style>
+            html, body {
+                padding: 0;
+                margin: 0;
+            }
+            main.container {
+                padding-left: 0 !important; /* 왼쪽 패딩 제거 */
+                padding-right: 0; /* 오른쪽 패딩 제거 (필요한 경우) */
+                max-width: none !important;
+            }
+
+            /* 기본 스타일 */
+            .sortable {
+                cursor: pointer;
+            }
+
+            .sortable::after {
+                content: ' \25B2';
+            }
+            .sortable.desc::after {
+                content: ' \25BC';
+            }
+
+            thead th {
+                position: sticky;
+                top: 0;
+                background-color: #fff;
+                z-index: 10;
+            }
+
+            thead th::before {
+                content: '';
+                position: absolute;
+                left: 0;
+                bottom: -1px; /* 테두리를 셀의 하단에 위치시킵니다. */
+                width: 100%;
+                border-bottom: 2px solid #000; /* 하단에 검은색 테두리 추가 */
+                z-index: -1;
+            }
+            
+            .odd-row {
+                background-color: #FFFFFF;
+            }
+            .even-row {
+                background-color: #FAF6F3;
+            }
+
+            body[data-theme='dark'] .odd-row {
+                background-color: #2C2C2E; /* 다크모드에 적합한 더 어두운 색 */
+            }
+            body[data-theme='dark'] .even-row {
+                background-color: #3A3A3C; /* 다크모드에 적합한 색, 홀수 행보다 약간 밝음 */
+            }
+
+            table {
+                width: 100%; /* 조정된 테이블 너비 */
+                table-layout: fixed;
+            }
+            th, td {
+                padding: 3px;
+                text-overflow: ellipsis;
+                overflow: hidden;
+                white-space: nowrap;
+                text-align: center; /* 좌우 정렬 기본값 */
+                border-bottom: 1px solid #dddddd;
+                border-top: 1px solid #dddddd;
+            }
+            tr:hover {
+                background-color: #f5f5f5;
+            }
+    
+            /* '요구 경력' 칼럼 텍스트 좌우 중앙 정렬 */
+            td.col-experience {
+                text-align: center;
+            }
+
+            #jobTable td, #jobTable th {
+                padding-top: 15px; /* 셀 상단 패딩 */
+                padding-bottom: 15px; /* 셀 하단 패딩 */
+            }
+    
+            /* 도메인 필터 스타일 */
+            #domainFilter {
+                display: flex;
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                overflow-y: hidden;
+                padding: 10px 0;
+                border-bottom: 1px solid #eee;
+            }
+            #domainFilter label {
+                margin-right: 15px;
+                white-space: nowrap;
+                color: #000000; /* 라이트 모드에서는 검정색 텍스트 */
+            }
+
+            thead th {
+                background-color: #ffffff; /* 라이트 모드에서의 칼럼바 배경색 */
+            }
+
+            /* 다크 모드 스타일 */
+            body[data-theme='dark'] #jobTable th,
+            body[data-theme='dark'] #jobTable td,
+            body[data-theme='dark'] #domainFilter label {
+                color: #ffffff; /* 다크 모드에서는 백색 텍스트 */
+            }
+
+            body[data-theme='dark'] thead th {
+                background-color: #333333; /* 다크 모드에서의 칼럼바 배경색, 어두운 색으로 조정 */
+            }
+                /* 테이블 행에 마우스 호버 시 배경색 변경 - 다크모드 */
+            body[data-theme='dark'] #jobTable tr:hover {
+                background-color: #424242; /* 어두운 회색으로 호버 배경색 설정 */
+            }
+
+            #domainFilter input[type="checkbox"] {
+                margin-right: 5px;
+            }
+    
+            /* 열 너비 설정 */
+            .col-experience { width: 10%; }
+            .col-company { width: 15%; }
+            .col-domain { width: 10%; }
+            .col-role { width: 15%; }
+            .col-service { width: 30%; }
+            .col-type { width: 10%; }
+            .col-deadline { width: 7.5%; }
+            .col-registration { width: 7.5%; }
+
+            body {
+                --background-color: #ffffff; /* 라이트모드 배경색 */
+                --text-color: #000000; /* 라이트모드 텍스트 색상 */
+            }
+
+            @media (prefers-color-scheme: dark) {
+                body {
+                    --background-color: #121212; /* 다크모드 배경색 */
+                    --text-color: #ffffff; /* 다크모드 텍스트 색상 */
+                }
+            }
+
+            body {
+                background-color: var(--background-color);
+                color: var(--text-color);
+            }
+            .theme-switch-wrapper {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                display: inline-block;
+                z-index: 9999;
+            }
+
+            .theme-switch {
+                display: inline-block;
+                height: 24px;
+                position: relative;
+                width: 48px;
+            }
+
+            .theme-switch input {display:none;
+            }
+
+            .slider {
+                background-color: #ccc;
+                bottom: 0;
+                cursor: pointer;
+                left: 0;
+                position: absolute;
+                right: 0;
+                top: 0;
+                transition: .4s;
+                border-radius: 24px;
+            }
+
+            .slider:before {
+                position: relative;
+                content: "";
+                height: 20px;
+                width: 20px;
+                left: 4px;
+                bottom: 2px;
+                background-color: rgb(225, 1, 1);
+                transition: .4s;
+                border-radius: 50%;
+            }
+
+            input:checked + .slider {
+                background-color: #4c4c4c;
+            }
+
+            .slider.round {
+                border-radius: 34px;
+            }
+
+            .slider.round:before {
+                border-radius: 50%;
+            }
+
+            /* 스위치 스타일 조정 */
+            .light .slider {
+                background-image: linear-gradient(to right, orange , #ccc);
+                background-size: 200% 100%;
+                background-position: left;
+            }
+
+            .dark .slider {
+                background-image: linear-gradient(to right, #ccc, #4c4c4c);
+                background-size: 200% 100%;
+                background-position: right;
+            }
+
+            /* 아이콘 스타일 */
+            .slider:after {
+                content: '\2600'; /* 해 아이콘 */
+                color: white;
+                display: block;
+                position: absolute;
+                transform: translate(-50%,-50%);
+                top: 55%;
+                left: 27%;
+                font-size: 18px;
+                transition: .4s;
+            }
+
+            input:checked + .slider:after {
+                content: '🌙'; /* 달 아이콘 */
+                color: #f1c40f;
+                left: 72%;
+            }
+
+              /* 도메인 태그 스타일 */
+            .domain-tag {
+                display: inline-block;
+                padding: 2px 6px;
+                margin: 2px;
+                font-size: 14px;
+                color: #fff;
+                background-color: 	#51A351;
+                border-radius: 4px;
+                white-space: nowrap;
+            }
+
+            body[data-theme='dark'] .domain-tag {
+                background-color: #375a7f; /* 다크 모드에서의 태그 배경색 */
+            }
+        </style>
+        
+    </head>
+    <body>
+
+<main class="container">
+         <!-- 테마 전환 버튼 -->
+     <div class="theme-switch-wrapper">
+        <label class="theme-switch" for="checkbox">
+            <input type="checkbox" id="checkbox" />
+            <div class="slider round"></div>
+            
+        </label>
+    </div>
+    <h2>경력직 채용</h2>
+    <div id="domainFilter">
+        <!-- 도메인 필터링 체크박스들이 여기에 위치 -->
+    </div>
+    <table id="jobTable">
+        <thead>
+            <tr>
+                <th class="col-experience sortable" onclick="sortTable('요구 경력', this)">요구 경력</th>
+                <th class="col-company">회사명</th>
+                <th class="col-domain">도메인</th>
+                <th class="col-role">포지션</th>
+                <th class="col-service">서비스소개</th>
+                <th class="col-type">구분</th>
+                <th class="col-deadline sortable" onclick="sortTable('마감일', this)">마감일</th>
+                <th class="col-registration sortable" onclick="sortTable('등록일', this)">등록일</th>                <th class="col-status">상태</th> <!-- '상태' 칼럼 추가 -->
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Table rows will be added here dynamically -->
+        </tbody>
+    </table>
+</main>
+
+<script>
+    let jobs = []; // 직무 목록을 저장할 배열
+    let offset = ''; // Airtable 페이징을 위한 offset
+    let sortState = { column: '등록일', descending: true, secondary: '요구 경력', secondaryDescending: false };
+    let filteredJobs = []; // 필터링된 직무 목록 
+
+    async function loadJobs() {
+        while (true) {
+            let url = 'https://api.airtable.com/v0/appstyiSyDopjQaDG/tble1ZkQmf8IOpRMo';
+            if (offset) {
+                url += `?offset=${offset}`;
+            }
+
+            const response = await fetch(url, {
+                headers: {
+                }
+            });
+            const data = await response.json();
+            console.log(data);
+
+            let newJobs = data.records.filter(record => record.fields['상태'] === '채용 중');
+            jobs = jobs.concat(newJobs);
+
+            offset = data.offset || '';
+            if (!offset) break; // 더 이상 로드할 데이터가 없으면 반복 종료
+        }
+
+        filteredJobs = jobs.slice(); // 초기 필터링된 목록은 전체 직무 목록과 동일
+        generateDomainFilters();
+        sortAndRenderTable(); // 데이터 정렬 및 필터링된 테이블에 렌더링
+    }
+
+    function generateDomainFilters() {
+        const domainSet = new Set(); // 고유한 도메인 값을 저장할 Set 객체 생성
+
+        // 모든 작업 항목에 대해 반복하며 도메인 값을 Set에 추가
+        jobs.forEach(job => {
+            if (job.fields['도메인']) {
+                // 도메인 값이 배열인 경우 모든 항목을 추가, 그렇지 않으면 단일 값을 추가
+                if (Array.isArray(job.fields['도메인'])) {
+                    job.fields['도메인'].forEach(domain => domainSet.add(domain));
+                } else {
+                    domainSet.add(job.fields['도메인']);
+                }
+            }
+        });
+
+        const sortedDomains = Array.from(domainSet).sort();
+        
+        const domainFilterDiv = document.getElementById('domainFilter');
+        domainFilterDiv.innerHTML = ''; // 필터링 영역 초기화
+
+        // Set에 저장된 모든 도메인에 대해 체크박스 생성
+        sortedDomains.forEach(domain => {
+            const label = document.createElement('label');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = domain;
+            checkbox.onchange = filterJobs; // 체크박스 상태 변경 시 filterJobs 함수 호출
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(` ${domain}`));
+            domainFilterDiv.appendChild(label);
+        });
+    }
+
+    function filterJobs() {
+        const selectedDomains = Array.from(document.querySelectorAll('#domainFilter input:checked')).map(input => input.value);
+        filteredJobs = jobs.filter(job => {
+            const jobDomains = job.fields['도메인'] || [];
+            return selectedDomains.length === 0 || selectedDomains.some(domain => jobDomains.includes(domain));
+        });
+
+        sortAndRenderTable();
+    }
+
+    function sortAndRenderTable() {
+        filteredJobs.sort((a, b) => {
+            // 첫 번째 정렬 기준: '등록일'
+            let primarySort = compareValues(a, b, sortState.column, sortState.descending);
+            if (primarySort !== 0) return primarySort;
+
+            // 두 번째 정렬 기준: '요구 경력'
+            let secondarySort = compareValues(a, b, sortState.secondary, sortState.secondaryDescending, true);
+            if (secondarySort !== 0) return secondarySort;
+
+            // 세 번째 정렬 기준: '회사명' (텍스트 순서)
+            return compareValues(a, b, '회사명', false); // '회사명'은 항상 오름차순으로 정렬
+        });
+
+        renderTable();
+    }
+
+    // 날짜 형식을 'yy.mm.dd'로 변환하는 함수
+    function convertDateFormat(dateString) {
+        if (!dateString) return '';
+        const [year, month, day] = dateString.split('-'); // 'yyyy.mm.dd' 형식을 가정
+        return `${year.slice(2)}.${month}.${day}`; // 'yy.mm.dd' 형식으로 변환
+    }
+
+
+    function renderTable() {
+        const tableBody = document.getElementById('jobTable').getElementsByTagName('tbody')[0];
+        tableBody.innerHTML = ''; // 테이블 초기화
+
+        filteredJobs.forEach((job, index) => {
+            const row = tableBody.insertRow();
+            if (index % 2 === 0) {
+                row.className = 'even-row'; // 짝수 번호 행에 'even-row' 클래스 적용
+            } else {
+                row.className = 'odd-row'; // 홀수 번호 행에 'odd-row' 클래스 적용
+            }
+
+               // '요구 경력'과 '요구 경력max' 값을 조건에 따라 문자열 생성
+            const experienceMin = job.fields['요구 경력'] || '0'; // '요구 경력'이 없는 경우 '0'으로 처리
+            const experienceMax = job.fields['요구 경력max']; // '요구 경력max' 값 확인
+            const experienceText = experienceMax ? `${experienceMin}-${experienceMax}년` : `${experienceMin}년`; // '요구 경력max' 존재 여부에 따라 문자열 결정
+           
+            
+            row.insertCell(0).innerText = experienceText;
+
+            const companyCell = row.insertCell(1); // '회사명' 셀 생성
+            if (job.fields['회사명(링크)']) { // '회사명(링크)'가 있는 경우
+                const companyLink = document.createElement('a');
+                companyLink.href = job.fields['회사명(링크)'];
+                companyLink.target = '_blank';
+                companyLink.textContent = job.fields['회사명'];
+                companyCell.appendChild(companyLink);
+            } else {
+                companyCell.textContent = job.fields['회사명']; // 링크 없이 텍스트만 추가
+            }
+
+            const domainCell = row.insertCell(2);
+            const domains = job.fields['도메인'] || [];
+            domains.forEach(domain => {
+                const domainTag = document.createElement('span'); // 태그로 사용할 span 요소 생성
+                domainTag.classList.add('domain-tag'); // 태그 스타일 적용
+                domainTag.textContent = domain;
+                domainCell.appendChild(domainTag); // 도메인 셀에 태그 추가
+        });
+
+            
+            row.insertCell(3).innerText = job.fields['직무'] || '';
+            row.insertCell(4).innerText = job.fields['서비스소개'] || '';
+            row.insertCell(5).innerText = job.fields['구분'] || '';
+            row.insertCell(6).innerText = convertDateFormat(job.fields['마감일']); // '마감일'을 새로운 형식으로 변환
+            row.insertCell(7).innerText = convertDateFormat(job.fields['등록일']);
+
+            if (job.fields['직무(링크)']) { // '직무(링크)' 필드가 존재하는 경우에만 클릭 이벤트 핸들러 추가
+                row.style.cursor = 'pointer'; // 마우스 커서를 포인터로 변경
+                row.addEventListener('click', function() {
+                    window.open(job.fields['직무(링크)'], '_blank'); // 새 탭에서 '직무(링크)' 열기
+                });
+            }
+        });
+    }
+    function compareValues(a, b, column, descending, numeric = false) {
+        let aValue = a.fields[column] || 0;
+        let bValue = b.fields[column] || 0;
+
+        // 숫자로 구성된 문자열을 숫자로 변환
+        if (numeric || (!isNaN(aValue) && !isNaN(bValue))) {
+            aValue = parseFloat(aValue);
+            bValue = parseFloat(bValue);
+        }
+
+        if (aValue < bValue) return descending ? 1 : -1;
+        if (aValue > bValue) return descending ? -1 : 1;
+        return 0;
+    }
+
+    function sortTable(column, element) {
+        const isDescending = sortState.column === column && !sortState.descending;
+        sortState = { ...sortState, column: column, descending: isDescending };
+
+        document.querySelectorAll('.sortable').forEach(th => {
+            th.classList.remove('desc');
+            if (th.textContent.trim() === column && isDescending) {
+                th.classList.add('desc');
+            }
+        });
+
+        sortAndRenderTable();
+    }
+
+
+    window.onload = function() {
+        // 직무 데이터 로드
+        loadJobs();
+
+        // 도메인 필터 섹션의 너비를 테이블의 너비와 동일하게 설정
+        adjustDomainFilterWidth();
+
+        if(localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            themeSwitch.checked = true;
+            document.body.setAttribute('data-theme', 'dark');
+        } else {
+            themeSwitch.checked = false;
+            document.body.setAttribute('data-theme', 'light');
+        }
+    };
+
+    function adjustDomainFilterWidth() {
+        // 테이블 요소 선택
+        var table = document.getElementById('jobTable');
+        // 도메인 필터 요소 선택
+        var domainFilter = document.getElementById('domainFilter');
+
+        // 테이블의 현재 너비 가져오기
+        var tableWidth = table.offsetWidth;
+
+        // 도메인 필터의 너비를 테이블의 너비로 설정
+        domainFilter.style.width = tableWidth + 'px';
+    }
+     //테마 전환
+    const themeSwitch = document.getElementById('checkbox');
+    const switchLabel = document.querySelector('.theme-switch');
+
+    themeSwitch.addEventListener('change', function() {
+        if (this.checked) {
+            switchLabel.classList.remove('light');
+            switchLabel.classList.add('dark');
+            document.body.setAttribute('data-theme', 'dark');
+        } else {
+            switchLabel.classList.remove('dark');
+            switchLabel.classList.add('light');
+            document.body.setAttribute('data-theme', 'light');
+        }
+        localStorage.setItem('theme', document.body.getAttribute('data-theme'));
+    });
+
+
+    // 페이지 로드 시 localStorage에서 테마 상태를 확인하고 적용
+
+</script>
+</body>
+</html>
+
